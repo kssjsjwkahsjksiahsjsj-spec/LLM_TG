@@ -1,9 +1,8 @@
-from idlelib import history
-
 import os
 import telebot
 from telebot import apihelper,types
 import rag
+import db
 import traceback
 from openai import OpenAI
 
@@ -32,7 +31,6 @@ BTN_FILES = "📁 Файлы"
 
 MAX_HISTORY = 10
 MAX_DIALOGS = 5
-users = {}
 
 #Создание пользователя. current текущий id, next_id счетчик,dialogs - словарь всех диалогов пользователя(содержит титульника и историю чата)
 def create_user():
@@ -83,15 +81,16 @@ def start_keyboard():
     return key_start
 
 #Кнопки появляющиеся после сообщения
-def dialogs_keyboard(user):
+def dialogs_keyboard(user_id):
+    current = db.current_dialog(user_id)
     keyboard = types.InlineKeyboardMarkup()
-    for n_id, n in user["dialogs"].items():
-        if n_id  == user["current"]:
+    for n_id, title in db.list_dialogs(user_id):
+        if n_id  == current:
             mark = "✅"
         else:
              mark = ""
         keyboard.row(
-            types.InlineKeyboardButton(mark + n["title"],callback_data=f"switch:{n_id}"),
+            types.InlineKeyboardButton(mark + title,callback_data=f"switch:{n_id}"),
             types.InlineKeyboardButton("🗑",callback_data=f"delete:{n_id}")
         )
     return keyboard
@@ -139,24 +138,25 @@ def handle_files_callback(call,action,raw):
 @bot.message_handler(commands=['start'])
 @bot.message_handler(func=lambda m:m.text == BTN_START)
 def start(message):
-    user = users.setdefault(message.from_user.id, create_user())
-    title = user["dialogs"][user["current"]]["title"]
+    user = message.from_user.id
+    db.start_session(user)
+    title = db.dialog_title(db.current_dialog(user))
     bot.send_message(message.chat.id,f"Текущий диалог {title}.Введите запрос к ии",reply_markup=main_keyboard())
 
 #Создание нового чата
 @bot.message_handler(func=lambda m:m.text == BTN_NEW)
 def new_chat(message):
-    user = users.get(message.from_user.id)
-    if user is None:
+    user = message.from_user.id
+    if not db.session_exitst(user):
         bot.send_message(message.chat.id, "Сеанс не начат, нажмите /start")
         return
 
-    if len(user["dialogs"]) > MAX_DIALOGS:
+    if len(db.list_dialogs(user)) >= MAX_DIALOGS:
         bot.send_message(message.chat.id,"Превышено макисимальное количесво диалогов для одного пользователя. Удалите один", reply_markup=dialogs_keyboard(user))
         return
 
-    n_id = new_dialog(user)
-    bot.send_message(message.chat.id,f"Создан чат {user['dialogs'][n_id]["title"]}.Можете начать писать")
+    n_id = db.new_dialog(user)
+    bot.send_message(message.chat.id,f"Создан чат {db.dialog_title(n_id)}.Можете начать писать")
 
 #Команда на удаления всех файлов
 @bot.message_handler(commands=["cleardocs"])
@@ -167,8 +167,8 @@ def on_cleardocs(message):
 #Список доступных чатов
 @bot.message_handler(func=lambda m:m.text == BTN_LIST)
 def get_list(message):
-    user = users.get(message.from_user.id)
-    if user is None:
+    user = message.from_user.id
+    if not db.session_exitst(user):
         bot.send_message(message.chat.id, "Сеанс не начат, нажмите /start")
         return
     bot.send_message(message.chat.id,"Ваши диалоги:",reply_markup=dialogs_keyboard(user))
@@ -176,19 +176,19 @@ def get_list(message):
 #Очищение диалога
 @bot.message_handler(func=lambda m:m.text == BTN_RESET)
 def reset(message):
-    user = users.get(message.from_user.id)
-    if user is None:
+    user = message.from_user.id
+    if not db.session_exitst(user):
         bot.send_message(message.chat.id, "Сеанс не начат, нажмите /start")
         return
-    n = user["dialogs"][user["current"]]
-    n["history"].clear()
-    n["title"] = f"Диалог {user["current"]}"
+    n_id = db.current_dialog(user)
+    db.clear_history(n_id)
+    db.set_title(n_id,f"Диалог{n_id}")
     bot.send_message(message.chat.id,"История текущего диалога очищена")
 
 #Выход из сеанса
 @bot.message_handler(func=lambda m:m.text == BTN_EXIT)
 def exit_message(message):
-    users.pop(message.from_user.id,None)
+    db.end_session(message.from_user.id)
     bot.send_message(message.chat.id,"Сеанс завершен, все диалоги удалены",reply_markup=start_keyboard())
 
 #Кнопки отправляющие запросы на прямую боту, а не через текст в чате
@@ -198,28 +198,26 @@ def callback_query(call):
     if action in ("fm","fd","fa"):
         handle_files_callback(call,action,raw)
         return
-    user = users.get(call.from_user.id)
-    if user is None or not raw.isdigit() or int(raw) not in user["dialogs"]:
+    user = call.from_user.id
+    if not raw.isdigit() or not db.dialog_belong_to(user,int(raw)):
         bot.answer_callback_query(call.id, "Такого диалога нет")
         return
 
     n_id = int(raw)
 
     if action == "switch":
-        user["current"] = n_id
-        bot.answer_callback_query(call.id,f"Выбран диалог:{user["dialogs"][n_id]['title']}")
+        db.set_current_dialog(user,n_id)
+        bot.answer_callback_query(call.id,f"Выбран диалог:{db.dialog_title(n_id)}")
     elif action == "delete":
-        del user["dialogs"][n_id]
-        if not user["dialogs"]:
-            new_dialog(user)
-        elif user["current"] == n_id:
-            user["current"] = next(iter(user["dialogs"]))
+        db.delete_dialog(user,n_id)
         bot.answer_callback_query(call.id,"Диалог удален")
+    else:
+        bot.answer_callback_query(call.id)
 
     try:
         bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,reply_markup=dialogs_keyboard(user))
     except Exception as e:
-        pass
+        print("Не удалось обновить кнопки:", type(e).__name__, e)
 
 #Если прислали документ
 @bot.message_handler(content_types=["document"])
@@ -257,22 +255,21 @@ def files(message):
 #Если прислали символьное сообщения
 @bot.message_handler(content_types=['text'])
 def get_text(message):
-    uid = message.from_user.id
-    user = users.get(uid)
-    if user is None:
+    user = message.from_user.id
+    if not db.session_exitst(user):
         bot.send_message(message.chat.id,"Сеанс не начат. Отправьте /start.")
         return
-    n = user["dialogs"][user["current"]]
-    history = n["history"]
-    if not history:
-        n["title"] = message.text[:30]
+    n_id = db.current_dialog(user)
+    if not db.get_history(n_id,1):
+        db.set_title(n_id,message.text[:30])
+    history = db.get_history(n_id,MAX_HISTORY)
     history.append({"role": "user", "content": message.text})
-    del history[:-MAX_HISTORY]
+
     try:
         sources = []
         system = SYSTEM_PROMPT
-        if rag.has_documents(uid):
-            hits = rag.search_documents(uid,message.text)
+        if rag.has_documents(user):
+            hits = rag.search_documents(user,message.text)
             context = "\n\n---\n\n".join(f"[{m['source']}]\n{t}" for t, m in hits)
             system = RAG_PROMPT + context
             sources = sorted({m["source"] for _,m in hits})
@@ -282,9 +279,11 @@ def get_text(message):
             messages=[{"role": "system", "content": system}] + history,
             max_tokens=800,
         )
-
         answer = response.choices[0].message.content
-        history.append({"role": "assistant", "content": answer})
+
+        db.add_message(n_id,"user",message.text)
+        db.add_message(n_id,"assistant",answer)
+
         if sources:
             answer += "\n\nИсточники: " + ", ".join(sources)
         send_long(message.chat.id,answer)
@@ -293,7 +292,6 @@ def get_text(message):
     except Exception as e:
         traceback.print_exc()
         bot.send_message(message.chat.id, "Произошла ошибка")
-        history.pop()
 
 bot.infinity_polling(timeout=10, long_polling_timeout=5)
 
