@@ -100,7 +100,7 @@ def list_documents(user_id):
 
 #Определенный документ
 def delete_document(user_id,file_name):
-    collection.delete(where={"user_id": user_id})
+    collection.delete(where={"$and":[{"user_id": user_id},{"source":file_name}]})
 #Все документы
 def delete_documents(user_id):
     collection.delete(where={"user_id": user_id})
