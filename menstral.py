@@ -148,8 +148,7 @@ def start(message):
 def new_chat(message):
     user = message.from_user.id
     if not db.session_exitst(user):
-        bot.send_message(message.chat.id, "Сеанс не начат, нажмите /start")
-        return
+        db.start_session(user)
 
     if len(db.list_dialogs(user)) >= MAX_DIALOGS:
         bot.send_message(message.chat.id,"Превышено макисимальное количесво диалогов для одного пользователя. Удалите один", reply_markup=dialogs_keyboard(user))
@@ -169,8 +168,7 @@ def on_cleardocs(message):
 def get_list(message):
     user = message.from_user.id
     if not db.session_exitst(user):
-        bot.send_message(message.chat.id, "Сеанс не начат, нажмите /start")
-        return
+        db.start_session(user)
     bot.send_message(message.chat.id,"Ваши диалоги:",reply_markup=dialogs_keyboard(user))
 
 #Очищение диалога
@@ -178,11 +176,10 @@ def get_list(message):
 def reset(message):
     user = message.from_user.id
     if not db.session_exitst(user):
-        bot.send_message(message.chat.id, "Сеанс не начат, нажмите /start")
-        return
+        db.start_session(user)
     n_id = db.current_dialog(user)
     db.clear_history(n_id)
-    db.set_title(n_id,f"Диалог{n_id}")
+    db.reset_title(n_id)
     bot.send_message(message.chat.id,"История текущего диалога очищена")
 
 #Выход из сеанса
@@ -257,8 +254,7 @@ def files(message):
 def get_text(message):
     user = message.from_user.id
     if not db.session_exitst(user):
-        bot.send_message(message.chat.id,"Сеанс не начат. Отправьте /start.")
-        return
+        db.start_session(user)
     n_id = db.current_dialog(user)
     if not db.get_history(n_id,1):
         db.set_title(n_id,message.text[:30])

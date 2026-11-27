@@ -11,6 +11,7 @@ connection.executescript(""
                          "CREATE TABLE IF NOT EXISTS dialogs ("
                          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                          "user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,"
+                         "number INTEGER NOT NULL,"
                          "title TEXT NOT NULL"
                          ");"
                          "CREATE TABLE IF NOT EXISTS messages ("
@@ -20,6 +21,10 @@ connection.executescript(""
                          "content TEXT NOT NULL);")
 
 lock = threading.Lock()
+
+#Возвращаем номер следующего диалога
+def next_number(user_id):
+    return connection.execute("SELECT COALESCE(MAX(number),0) + 1 FROM dialogs WHERE user_id = ?",(user_id,)).fetchone()[0]
 
 #Проверка существования сессии
 def session_exitst(user_id):
@@ -31,7 +36,7 @@ def start_session(user_id):
         if connection.execute("SELECT 1 FROM users WHERE user_id = ?",(user_id,)).fetchone() is not None:
             return
         connection.execute("INSERT INTO users (user_id,current_dialog) VALUES (?,NULL)",(user_id,))
-        current = connection.execute("INSERT INTO dialogs (user_id,title) VALUES (?,?)",(user_id,"Диалог 1"))
+        current = connection.execute("INSERT INTO dialogs (user_id,number,title) VALUES (?,1,?)",(user_id,"Диалог 1"))
         connection.execute("UPDATE users SET current_dialog = ? WHERE user_id = ?", (current.lastrowid,user_id))
 
 #Удаляем пользователя, когда он заканчивает сессию
@@ -56,11 +61,15 @@ def list_dialogs(user_id):
 #При создании нового чата
 def new_dialog(user_id):
     with lock,connection:
-        current = connection.execute("INSERT INTO dialogs (user_id,title) VALUES (?,?)",(user_id,"Новый диалог"))
+        number = next_number(user_id)
+        current = connection.execute("INSERT INTO dialogs (user_id,number,title) VALUES (?,?,?)",(user_id,number,f"Диалог {number}"))
         connection.execute("UPDATE users SET current_dialog = ? WHERE user_id = ?",(current.lastrowid,user_id))
-        connection.execute("UPDATE dialogs SET title = ? WHERE id = ?",(f"Диалог{current.lastrowid}",current.lastrowid))
         return current.lastrowid
 
+#Обновляем заголовок диалога
+def reset_title(dialog_id):
+    with lock,connection:
+        connection.execute("UPDATE dialogs SET title = 'Диалог ' || number WHERE id = ?",(dialog_id))
 #Удаляем диалог
 def delete_dialog(user_id,dialog_id):
     with lock,connection:
