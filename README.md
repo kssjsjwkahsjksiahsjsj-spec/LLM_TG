@@ -45,3 +45,4 @@ python menstral.py
 - `menstral.py` — обработчики Telegram
 - `rag.py` — документы, фрагменты, embeddings, поиск
 - `db.py` — пользователи, диалоги, история (SQLite)
+![Пример работы](docs/LLM.gif).
