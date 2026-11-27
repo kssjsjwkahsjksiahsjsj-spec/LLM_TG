@@ -95,11 +95,12 @@ def dialogs_keyboard(user_id):
         )
     return keyboard
 
+#Ответ от ии
 def send_long(chat_id,text,limit=4000):
     for i in range(0,len(text),limit):
         bot.send_message(chat_id,text[i:i+limit])
 
-
+#Обработка кнопок для удаления и просмотра файлов
 def handle_files_callback(call,action,raw):
     uid = call.from_user.id
     names = rag.list_documents(uid)
@@ -244,6 +245,7 @@ def on_document(message):
         print(e)
         bot.send_message(message.chat.id,"Не удалось обработать файл")
 
+#Кнопка добавления файла
 @bot.message_handler(func=lambda m:m.text == BTN_FILES)
 def files(message):
     bot.send_message(message.chat.id,"Файлы. Чтобы добавить файл, просто пришлите его в чат.",
@@ -289,6 +291,7 @@ def get_text(message):
         traceback.print_exc()
         bot.send_message(message.chat.id, "Произошла ошибка")
 
+#Повторные запросы
 bot.infinity_polling(timeout=10, long_polling_timeout=5)
 
 

@@ -15,10 +15,10 @@ embedder = TextEmbedding(model_name=EMBED_MODEL)
 chroma = chromadb.PersistentClient(path="chroma_db")
 collection = chroma.get_or_create_collection(name="user_docs_5large",metadata={"hnsw:space":"cosine"})
 
-ALLOWED_EXTENSIONS = (".docx",".txt",".md")
-MAX_FILE_SIZE = 1024*1024*8
-MAX_CHUNK = 150
-MAX_DOCS = 5
+ALLOWED_EXTENSIONS = (".docx",".txt",".md") #Доступные форматы файлов
+MAX_FILE_SIZE = 1024*1024*8 #Максимальные размер файла
+MAX_CHUNK = 150 #Максимальный размер одного чанка
+MAX_DOCS = 5 #Максимум документов, которые можно загрузить
 
 index_lock = threading.Lock() #Отправление одного файла за раз
 model_lock = threading.Lock() #Отсправление одного запроса за раз
@@ -69,11 +69,13 @@ def embed(texts):
     with model_lock:
          return [vector.tolist() for vector in embedder.embed(["passage: " + t for t in texts])]
 
+#embedding(превращение в вектор)
 def embed_query(text):
     with model_lock:
         vector =  list(embedder.embed(["query: " + text]))
         return vector[0].tolist()
 
+#огика разделения текста на чанки
 def add_document(user_id,file_name,data):
     with index_lock:
         chuncks = split_for_chunks(extract_file(file_name,data))[:MAX_CHUNK]
